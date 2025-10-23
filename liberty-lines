@@ -1,0 +1,633 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Liberty Lines - A Revolutionary War Game</title>
+    <!-- 1. Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- 2. Load Inter Font -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+
+        /* Container for the SVG to make it responsive */
+        .svg-container {
+            width: 100%;
+            padding-top: 75%; /* 4:3 Aspect Ratio */
+            position: relative;
+            background-color: #f0f4f8; /* Light blue-gray, like a map */
+            border-radius: 0.75rem;
+            border: 4px solid #374151; /* gray-700 */
+            overflow: hidden; /* Crticial: keeps patrols inside */
+        }
+
+        #game-svg {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            cursor: pointer;
+        }
+
+        /* --- SVG Element Styles --- */
+
+        /* The map outline */
+        .map-path {
+            fill: #a3bf9b; /* Olive green */
+            stroke: #374151; /* gray-700 */
+            stroke-width: 2;
+            transition: d 0.5s ease-in-out;
+        }
+
+        /* The route the player should follow */
+        .route-path {
+            fill: none;
+            stroke: #d6c6a2; /* Dirt road color */
+            stroke-width: 12;
+            stroke-dasharray: 20 10; /* Dashed line for a 'road' */
+            transition: d 0.5s ease-in-out;
+        }
+
+        /* The player's wagon */
+        #player-wagon {
+            fill: #3b82f6; /* blue-500 */
+            stroke: #1e3a8a; /* blue-800 */
+            stroke-width: 1.5;
+            transition: transform 0.1s linear; /* Smooth movement */
+        }
+
+        /* The start and end points */
+        .start-point { 
+            fill: #10b981; /* emerald-500 */
+            transition: all 0.5s ease-in-out;
+        }
+        .end-point { 
+            fill: #f59e0b; /* amber-500 */
+            stroke: #b45309; /* amber-700 */
+            stroke-width: 1.5;
+            cursor: pointer;
+            transition: all 0.5s ease-in-out;
+        }
+        
+        .location-label {
+            font-weight: bold;
+            font-size: 16px;
+            fill: #374151;
+            transition: all 0.5s ease-in-out;
+        }
+        
+        /* --- Patrols --- */
+        .patrol {
+            fill: #ef4444; /* red-500 */
+            stroke: #b91c1c; /* red-700 */
+            stroke-width: 1.5;
+            transition: transform 0.1s linear;
+        }
+        
+        /* Patrols are hidden by default and shown by JS */
+        .patrol.hidden {
+            display: none;
+        }
+
+    </style>
+</head>
+<body class="bg-gray-800 min-h-screen flex items-center justify-center p-4 md:p-8">
+
+    <main class="bg-white w-full max-w-6xl rounded-2xl shadow-2xl p-6 md:p-8">
+        <!-- Header -->
+        <div class="text-center mb-4">
+            <h1 id="level-title" class="text-3xl md:text-5xl font-bold text-gray-900">Liberty Lines</h1>
+            <p class="text-lg text-gray-600 mt-2">A Revolutionary War Supply Mission</p>
+        </div>
+
+        <div class="flex flex-col lg:flex-row gap-6">
+            
+            <!-- Game Column -->
+            <div class="lg:w-3/4">
+                <div id="game-container" class="svg-container game-stopped">
+                    <svg id="game-svg" viewBox="0 0 800 600">
+                        <!-- Map Background (will be set by JS) -->
+                        <path class="map-path" d="" />
+                        
+                        <!-- Game Route (will be set by JS) -->
+                        <path class="route-path" d="" />
+                        
+                        <!-- Start (will be set by JS) -->
+                        <circle class="start-point" cx="0" cy="0" r="15" />
+                        <text id="start-label" class="location-label" x="0" y="0"></text>
+
+                        <!-- End (will be set by JS) -->
+                        <path id="destination" class="end-point" d="" />
+                        <text id="end-label" class="location-label" x="0" y="0"></text>
+
+                        <!-- Player -->
+                        <g id="player-wagon" transform="translate(200, 150)">
+                            <rect width="20" height="15" x="-10" y="-7.5" />
+                            <circle cx="-6" cy="10" r="4" fill="#6b4629" />
+                            <circle cx="6" cy="10" r="4" fill="#6b4629" />
+                        </g>
+
+                        <!-- Patrols (will be added by JS) -->
+                    </svg>
+                </div>
+            </div>
+
+            <!-- Info/Controls Column -->
+            <div class="lg:w-1/4 flex flex-col gap-4">
+                <button id="start-button" class="bg-blue-600 text-white font-bold py-4 px-6 rounded-lg shadow-lg hover:bg-blue-700 transition duration-300 ease-in-out text-2xl">
+                    Start Mission
+                </button>
+
+                <!-- Message Box -->
+                <div id="message-box" class="bg-gray-100 rounded-lg p-5 flex-grow shadow-inner" style="min-height: 250px;">
+                    <h3 id="message-title" class="text-xl font-bold text-gray-800 mb-2">Welcome!</h3>
+                    <p id="message-body" class="text-gray-700">
+                        The Continental Army needs supplies to win the war. Each level is a critical mission.
+                        <br><br>
+                        Click 'Start Mission' to begin your first assignment: The Siege of Boston.
+                    </p>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <script>
+        // --- 1. DOM & SVG REFERENCES ---
+        const svg = document.getElementById('game-svg');
+        const gameContainer = document.getElementById('game-container');
+        const playerWagon = document.getElementById('player-wagon');
+        const destination = document.getElementById('destination');
+        const startButton = document.getElementById('start-button');
+        const messageTitle = document.getElementById('message-title');
+        const messageBody = document.getElementById('message-body');
+        const levelTitle = document.getElementById('level-title');
+
+        // SVG elements to be updated
+        const mapPathEl = document.querySelector('.map-path');
+        const routePathEl = document.querySelector('.route-path');
+        const startPointEl = document.querySelector('.start-point');
+        const startLabelEl = document.getElementById('start-label');
+        const endLabelEl = document.getElementById('end-label');
+
+        let patrols = []; // This will hold the JS-controlled patrol objects
+
+        // --- 2. GAME STATE ---
+        let isGameRunning = false;
+        let gameLoopId = null;
+        let playerPos = { x: 200, y: 150 };
+        let targetPos = { x: 200, y: 150 };
+        let currentLevelIndex = 0;
+        const PLAYER_SPEED = 2;
+
+        const lossMessage = {
+            title: "Mission Failed!",
+            body: "The wagon was captured by a British patrol! The army's supplies are lost. Click 'Try Again' to restart the mission."
+        };
+        
+        const winMessage = {
+            title: "VICTORY!",
+            body: "You've won the war! Thanks to your vital supply lines, the Continental Army has defeated the British. The United States is free. Click 'Play Again?' to restart from the beginning."
+        };
+
+        // --- 3. LEVEL DATA ---
+        const levels = [
+            {
+                title: "Siege of Boston (1776)",
+                mission: "General Washington needs cannons to drive the British from Boston. Bring the cannons from Fort Ticonderoga to Dorchester Heights!",
+                winFact: "Success! Henry Knox dragged 59 cannons over 300 miles of snow and ice. When the British saw the cannons on the heights, they evacuated Boston without a fight.",
+                startPos: { x: 150, y: 120 },
+                startLabel: "Ticonderoga",
+                endPos: { x: 650, y: 450 },
+                endLabel: "Boston",
+                mapPath: "M100,50 L350,20 L500,70 L600,40 L700,150 L750,300 L700,450 L650,580 L400,590 L200,550 L100,400 L120,200 Z",
+                routePath: "M150,120 Q 250,250 400,300 T 550,400 T 650,450",
+                patrols: [
+                    { shape: 'rect', w: 15, h: 15, speed: 1, path: [{x: 300, y: 200}, {x: 300, y: 400}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 1.5, path: [{x: 450, y: 350}, {x: 600, y: 300}] }
+                ]
+            },
+            {
+                title: "Battle of Long Island (1776)",
+                mission: "Washington's army is trapped in Brooklyn! We must evacuate the troops across the East River to Manhattan under the cover of night and fog.",
+                winFact: "A daring escape! Under cover of a miraculous fog, 9,000 soldiers were ferried to safety. If not for this, the war might have been lost in its first year.",
+                startPos: { x: 600, y: 400 },
+                startLabel: "Brooklyn",
+                endPos: { x: 200, y: 150 },
+                endLabel: "Manhattan",
+                mapPath: "M100,50 L400,70 L350,250 L150,200 Z M450,300 L700,350 L650,500 L500,480 Z", // Two "islands"
+                routePath: "M600,400 Q 400,300 200,150", // The "river"
+                patrols: [
+                    { shape: 'rect', w: 40, h: 15, speed: 2, path: [{x: 100, y: 280}, {x: 700, y: 320}] },
+                    { shape: 'rect', w: 40, h: 15, speed: 1.5, path: [{x: 700, y: 220}, {x: 100, y: 180}] }
+                ]
+            },
+            {
+                title: "Crossing the Delaware (1776)",
+                mission: "The army's morale is shattered. General Washington plans a surprise attack on the Hessians at Trenton. Cross the icy Delaware River on Christmas night!",
+                winFact: "Victory at Trenton! The daring crossing in a blinding snowstorm caught the Hessians completely by surprise. This victory saved the revolution.",
+                startPos: { x: 150, y: 300 },
+                startLabel: "PA",
+                endPos: { x: 650, y: 300 },
+                endLabel: "Trenton",
+                mapPath: "M100,50 L300,70 L280,550 L80,500 Z M500,60 L750,80 L730,560 L480,540 Z", // Two banks
+                routePath: "M150,300 Q 400,250 650,300",
+                patrols: [
+                    { shape: 'circle', r: 10, speed: 1.2, path: [{x: 300, y: 280}, {x: 500, y: 320}, {x: 300, y: 280}] },
+                    { shape: 'circle', r: 15, speed: 1.0, path: [{x: 550, y: 270}, {x: 350, y: 330}, {x: 550, y: 270}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 1.5, path: [{x: 600, y: 100}, {x: 600, y: 500}] }
+                ]
+            },
+            {
+                title: "Battle of Saratoga (1777)",
+                mission: "British General Burgoyne is marching from Canada. We must deliver vital ammunition to General Gates at Bemis Heights to stop him.",
+                winFact: "The turning point! The American victory at Saratoga convinced France to join the war as our ally. This support was essential to winning the war.",
+                startPos: { x: 400, y: 550 },
+                startLabel: "Albany",
+                endPos: { x: 400, y: 100 },
+                endLabel: "Saratoga",
+                mapPath: "M150,50 L650,50 L650,550 L150,550 Z", // A "forest"
+                routePath: "M400,550 Q 500,450 400,350 T 300,250 T 400,100",
+                patrols: [
+                    { shape: 'rect', w: 15, h: 15, speed: 2.5, path: [{x: 200, y: 150}, {x: 600, y: 150}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 2.0, path: [{x: 200, y: 300}, {x: 600, y: 400}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 2.2, path: [{x: 600, y: 250}, {x: 200, y: 500}] }
+                ]
+            },
+            {
+                title: "Winter at Valley Forge (1778)",
+                mission: "The army is camped at Valley Forge for the winter. They are starving and freezing. Bring food and warm blankets before it's too late.",
+                winFact: "The army survived! Despite the horrific conditions, the army trained under Baron von Steuben and emerged as a professional, disciplined fighting force.",
+                startPos: { x: 150, y: 150 },
+                startLabel: "Supplies",
+                endPos: { x: 700, y: 500 },
+                endLabel: "Valley Forge",
+                mapPath: "M100,50 L350,20 L500,70 L600,40 L700,150 L750,300 L700,450 L650,580 L400,590 L200,550 L100,400 L120,200 Z",
+                routePath: "M150,150 Q 250,250 400,300 T 550,450 T 700,500",
+                patrols: [
+                    { shape: 'rect', w: 15, h: 15, speed: 1.5, path: [{x: 300, y: 200}, {x: 300, y: 450}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 2.0, path: [{x: 450, y: 300}, {x: 650, y: 300}] },
+                    { shape: 'circle', r: 8, speed: 1.8, path: [{x: 500, y: 500}, {x: 650, y: 450}, {x: 500, y: 400}, {x: 400, y: 450}] }
+                ]
+            },
+            {
+                title: "Battle of Monmouth (1778)",
+                mission: "It's over 100 degrees, and the troops are collapsing from heatstroke. Molly Pitcher is helping, but we must get more water to the front lines!",
+                winFact: "A hard-fought draw! The battle proved the new American training from Valley Forge worked. They stood toe-to-toe with the British regulars.",
+                startPos: { x: 100, y: 300 },
+                startLabel: "Well",
+                endPos: { x: 700, y: 300 },
+                endLabel: "Front Line",
+                mapPath: "M50,50 L750,50 L750,550 L50,550 Z",
+                routePath: "M100,300 L700,300",
+                patrols: [
+                    { shape: 'rect', w: 15, h: 15, speed: 4.0, path: [{x: 200, y: 100}, {x: 200, y: 500}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 4.5, path: [{x: 400, y: 500}, {x: 400, y: 100}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 4.2, path: [{x: 600, y: 100}, {x: 600, y: 500}] }
+                ]
+            },
+            {
+                title: "Siege of Yorktown (1781)",
+                mission: "We've trapped British General Cornwallis at Yorktown. Deliver the siege plans to the French fleet to complete the blockade!",
+                winFact: "The world turned upside down! Surrounded by American troops on land and the French fleet at sea, Cornwallis surrendered. This was the decisive battle that won the war!",
+                startPos: { x: 150, y: 150 },
+                startLabel: "Washington's HQ",
+                endPos: { x: 650, y: 500 },
+                endLabel: "French Fleet",
+                mapPath: "M100,50 L600,50 L750,300 L600,550 L100,550 Z", // "Land"
+                routePath: "M150,150 Q 300,300 450,400 T 650,500",
+                patrols: [
+                    { shape: 'rect', w: 15, h: 15, speed: 2.5, path: [{x: 250, y: 100}, {x: 250, y: 400}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 2.0, path: [{x: 400, y: 450}, {x: 400, y: 200}] },
+                    { shape: 'rect', w: 15, h: 15, speed: 2.2, path: [{x: 550, y: 250}, {x: 550, y: 500}] },
+                    { shape: 'rect', w: 40, h: 15, speed: 3.0, path: [{x: 600, y: 400}, {x: 700, y: 450}, {x: 600, y: 500}] }
+                ]
+            }
+        ];
+
+        // --- 4. GAME FUNCTIONS ---
+
+        /**
+         * Main function to start or advance a level
+         */
+        function handleStartClick() {
+            const buttonText = startButton.textContent;
+
+            if (buttonText === "Next Mission") {
+                currentLevelIndex++;
+            } else if (buttonText === "Play Again?") {
+                currentLevelIndex = 0;
+            }
+            // "Start Mission" and "Try Again" just reload the current level index
+
+            loadLevel(currentLevelIndex);
+        }
+
+        /**
+         * Sets up and starts a specific level
+         */
+        function loadLevel(index) {
+            if (index >= levels.length) {
+                // This shouldn't be reached, but as a safeguard
+                endGame();
+                return;
+            }
+            
+            isGameRunning = true;
+            const level = levels[index];
+
+            // 1. Update text content
+            levelTitle.textContent = level.title;
+            updateMessage("Your Mission:", level.mission);
+
+            // 2. Update SVG map and route
+            mapPathEl.setAttribute('d', level.mapPath);
+            routePathEl.setAttribute('d', level.routePath);
+
+            // 3. Update Start/End points
+            startPointEl.setAttribute('cx', level.startPos.x);
+            startPointEl.setAttribute('cy', level.startPos.y);
+            startLabelEl.setAttribute('x', level.startPos.x);
+            startLabelEl.setAttribute('y', level.startPos.y - 25);
+            startLabelEl.textContent = level.startLabel;
+            
+            // Generate star path for destination
+            const endStar = createStarPath(level.endPos.x, level.endPos.y, 15);
+            destination.setAttribute('d', endStar);
+            endLabelEl.setAttribute('x', level.endPos.x - 20);
+            endLabelEl.setAttribute('y', level.endPos.y + 40);
+            endLabelEl.textContent = level.endLabel;
+            
+            // 4. Reset player
+            playerPos = { ...level.startPos };
+            targetPos = { ...level.startPos };
+            playerWagon.setAttribute('transform', `translate(${playerPos.x}, ${playerPos.y})`);
+
+            // 5. Clear old patrols and create new ones
+            clearPatrols();
+            patrols = level.patrols.map(p => createPatrol(p));
+
+            // 6. Update UI
+            startButton.textContent = "Mission in Progress...";
+            startButton.disabled = true;
+            gameContainer.classList.remove('game-stopped');
+
+            // 7. Start game loop
+            if (gameLoopId) cancelAnimationFrame(gameLoopId);
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+
+        /**
+         * Stops the game and shows win/loss message
+         */
+        function stopGame(didWin) {
+            isGameRunning = false;
+            cancelAnimationFrame(gameLoopId);
+            gameContainer.classList.add('game-stopped');
+            startButton.disabled = false;
+
+            if (didWin) {
+                const level = levels[currentLevelIndex];
+                updateMessage("Mission Complete!", level.winFact);
+
+                if (currentLevelIndex + 1 < levels.length) {
+                    startButton.textContent = "Next Mission";
+                } else {
+                    endGame();
+                }
+            } else {
+                updateMessage(lossMessage.title, lossMessage.body);
+                startButton.textContent = "Try Again";
+            }
+        }
+        
+        /**
+         * Called when all levels are finished
+         */
+        function endGame() {
+            updateMessage(winMessage.title, winMessage.body);
+            startButton.textContent = "Play Again?";
+            currentLevelIndex = 0; // Reset for next playthrough
+        }
+
+        /**
+         * The main game loop, runs every frame
+         */
+        function gameLoop() {
+            if (!isGameRunning) return;
+
+            // 1. Move Player
+            movePlayer();
+            
+            // 2. Move Patrols
+            movePatrols();
+
+            // 3. Check for Collisions
+            if (checkCollisions()) {
+                stopGame(false); // Player lost
+                return;
+            }
+
+            // 4. Check for Win
+            if (checkWin()) {
+                stopGame(true); // Player won
+                return;
+            }
+
+            // 5. Continue loop
+            gameLoopId = requestAnimationFrame(gameLoop);
+        }
+        
+        // --- 5. MOVEMENT & COLLISION ---
+
+        /**
+         * Moves the player one step towards the target
+         */
+        function movePlayer() {
+            const dx = targetPos.x - playerPos.x;
+            const dy = targetPos.y - playerPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < PLAYER_SPEED) return; // Stop if at target
+
+            const moveX = (dx / distance) * PLAYER_SPEED;
+            const moveY = (dy / distance) * PLAYER_SPEED;
+
+            playerPos.x += moveX;
+            playerPos.y += moveY;
+
+            playerWagon.setAttribute('transform', `translate(${playerPos.x}, ${playerPos.y})`);
+        }
+        
+        /**
+         * Moves all patrols one step along their paths
+         */
+        function movePatrols() {
+            for (const patrol of patrols) {
+                const target = patrol.path[patrol.currentTargetIndex];
+                const dx = target.x - patrol.pos.x;
+                const dy = target.y - patrol.pos.y;
+                const distance = Math.sqrt(dx * dx + dy * dy);
+
+                if (distance < patrol.speed) {
+                    // Arrived at target, switch to next target
+                    patrol.currentTargetIndex = (patrol.currentTargetIndex + 1) % patrol.path.length;
+                } else {
+                    // Move towards target
+                    const moveX = (dx / distance) * patrol.speed;
+                    const moveY = (dy / distance) * patrol.speed;
+                    patrol.pos.x += moveX;
+                    patrol.pos.y += moveY;
+                }
+                
+                patrol.el.setAttribute('transform', `translate(${patrol.pos.x}, ${patrol.pos.y})`);
+            }
+        }
+
+        /**
+         * Checks for collision between player and patrols
+         */
+        function checkCollisions() {
+            // Player's hitbox
+            const playerRect = { x: playerPos.x - 10, y: playerPos.y - 7.5, w: 20, h: 15 };
+            
+            for (const patrol of patrols) {
+                // Patrol's hitbox (centered on its pos)
+                const pRect = {
+                    x: patrol.pos.x - (patrol.w / 2),
+                    y: patrol.pos.y - (patrol.h / 2),
+                    w: patrol.w,
+                    h: patrol.h
+                };
+
+                // AABB collision detection
+                if (
+                    playerRect.x < pRect.x + pRect.w &&
+                    playerRect.x + playerRect.w > pRect.x &&
+                    playerRect.y < pRect.y + pRect.h &&
+                    playerRect.h + playerRect.y > pRect.y
+                ) {
+                    return true; // Collision detected!
+                }
+            }
+            return false;
+        }
+        
+        /**
+         * Checks if the player has reached the destination
+         */
+        function checkWin() {
+            const endPos = levels[currentLevelIndex].endPos;
+            const dx = endPos.x - playerPos.x;
+            const dy = endPos.y - playerPos.y;
+            const distance = Math.sqrt(dx * dx + dy * dy);
+            return distance < 15; // 15 SVG units
+        }
+        
+        // --- 6. UTILITY FUNCTIONS ---
+
+        /**
+         * Updates the message box content
+         */
+        function updateMessage(title, body) {
+            messageTitle.textContent = title;
+            messageBody.textContent = body;
+        }
+
+        /**
+         * Sets the player's target position on click
+         */
+        function setTarget(event) {
+            if (!isGameRunning) return;
+            
+            const svgRect = svg.getBoundingClientRect();
+            const svgPoint = svg.createSVGPoint();
+            svgPoint.x = event.clientX;
+            svgPoint.y = event.clientY;
+            
+            const pointInSVG = svgPoint.matrixTransform(svg.getScreenCTM().inverse());
+            
+            targetPos.x = pointInSVG.x;
+            targetPos.y = pointInSVG.y;
+        }
+        
+        /**
+         * Creates a patrol object and its SVG element
+         */
+        function createPatrol(config) {
+            const el = document.createElementNS("http://www.w3.org/2000/svg", config.shape);
+            el.setAttribute('class', 'patrol');
+            
+            let w, h;
+            if (config.shape === 'rect') {
+                w = config.w;
+                h = config.h;
+                el.setAttribute('width', w);
+                el.setAttribute('height', h);
+                el.setAttribute('x', -w / 2); // Center on pos
+                el.setAttribute('y', -h / 2); // Center on pos
+            } else { // circle
+                w = config.r * 2;
+                h = config.r * 2;
+                el.setAttribute('r', config.r);
+            }
+            
+            const startPos = config.path[0];
+            el.setAttribute('transform', `translate(${startPos.x}, ${startPos.y})`);
+            svg.appendChild(el);
+            
+            return {
+                ...config,
+                el: el,
+                pos: { ...startPos },
+                w: w,
+                h: h,
+                currentTargetIndex: 1
+            };
+        }
+        
+        /**
+         * Removes all patrol SVG elements
+         */
+        function clearPatrols() {
+            const existingPatrols = document.querySelectorAll('.patrol');
+            existingPatrols.forEach(p => p.remove());
+            patrols = [];
+        }
+        
+        /**
+         * Generates the 'd' attribute for a star
+         */
+        function createStarPath(cx, cy, radius) {
+            let path = "M" + cx + "," + (cy - radius);
+            for (let i = 1; i < 5; i++) {
+                let angle = (i * 4 * Math.PI / 5) - (Math.PI / 2);
+                path += " L" + (cx + Math.cos(angle) * radius) + "," + (cy + Math.sin(angle) * radius);
+            }
+            path += " Z";
+            return path;
+        }
+
+        // --- 7. EVENT LISTENERS ---
+        startButton.addEventListener('click', handleStartClick);
+        svg.addEventListener('click', setTarget);
+
+        // --- 8. INITIAL LOAD ---
+        // Load default text on page load, but not the game
+        updateMessage(
+            "Welcome!", 
+            "The Continental Army needs supplies to win the war. Each level is a critical mission.\n\nClick 'Start Mission' to begin your first assignment: The Siege of Boston."
+        );
+        // Set a default map to show something
+        mapPathEl.setAttribute('d', levels[0].mapPath);
+
+    </script>
+</body>
+</html>
+
